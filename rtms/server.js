@@ -85,8 +85,16 @@ function connectToSignalingWebSocket(engagementId, rtmsStreamId, serverUrl, enga
     console.error(`Signaling WebSocket error:`, error.message);
   });
 
-  ws.on('close', () => {
-    // Signaling connection closed
+  ws.on('close', (code) => {
+    console.log(`[${engagementId}] Signaling WebSocket closed (code: ${code})`);
+    if (code === 1000) {
+      console.log(`[${engagementId}] Transfer detected — reconnecting...`);
+      if (engagementData.mediaWs) {
+        engagementData.mediaWs.close();
+        engagementData.mediaWs = null;
+      }
+      connectToSignalingWebSocket(engagementId, rtmsStreamId, engagementData.serverUrl, engagementData);
+    }
   });
 }
 
@@ -199,6 +207,7 @@ function handleRTMSStarted(payload) {
   const engagementData = {
     engagementId: engagement_id,
     rtmsStreamId: rtms_stream_id,
+    serverUrl: server_urls,
     sessionDir,
     channelPaths: new Map(), // channelId -> { rawPath, wavPath }
     audioChunkCount: 0,
