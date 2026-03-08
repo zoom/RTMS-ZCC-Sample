@@ -70,6 +70,9 @@ function connectToSignalingWebSocket(engagementId, rtmsStreamId, serverUrl, enga
     } else if (message.msg_type === 6) {
       // Event subscription response
       console.log(message);
+      if (message.event.event_type === 21) {
+        console.log('transferred', message)
+      }
 
     } else if (message.msg_type === 12) {
       // Keep-alive request
