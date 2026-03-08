@@ -6,6 +6,7 @@ import express from 'express';
 import crypto from 'crypto';
 import WebSocket from 'ws';
 import { saveRawAudio, convertRawToWav, closeRawStream, closeAllAudioStreams, makeSessionTimestamp, getChannelRawPath, getChannelWavPath, finalizeInterleavedWav } from './audioHelper.js';
+import { appendFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -20,8 +21,9 @@ const CLIENT_SECRET = process.env.ZOOM_APP_CLIENT_SECRET;
 // Ensure data directories exist
 const dataDir = join(__dirname, 'data');
 const audioDir = join(dataDir, 'audio');
+const transcriptsDir = join(dataDir, 'transcripts');
 
-[dataDir, audioDir].forEach(dir => {
+[dataDir, audioDir, transcriptsDir].forEach(dir => {
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -29,6 +31,14 @@ const audioDir = join(dataDir, 'audio');
 
 // Store active engagements
 const activeEngagements = new Map();
+
+function saveTranscript(data) {
+  const now = new Date();
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const timestamp = now.toISOString();
+  const filePath = join(transcriptsDir, `${date}.txt`);
+  appendFileSync(filePath, `[${timestamp}] ${JSON.stringify(data)}\n`);
+}
 
 // Generate signature: HMAC-SHA256(client_id + "," + engagement_id + "," + rtms_stream_id, secret)
 function generateSignature(engagementId, rtmsStreamId) {
@@ -57,7 +67,7 @@ function connectToSignalingWebSocket(engagementId, rtmsStreamId, serverUrl, enga
     ws.send(JSON.stringify(handshake));
   });
 
-  ws.on('message', (data) => {
+  ws.on('message', async (data) => {
     const message = JSON.parse(data.toString());
     if (message.msg_type === 2) {
       // Signaling handshake response
@@ -70,8 +80,21 @@ function connectToSignalingWebSocket(engagementId, rtmsStreamId, serverUrl, enga
     } else if (message.msg_type === 6) {
       // Event subscription response
       console.log(message);
-      if (message.event.event_type === 21) {
+      if (message.event.event_type === 21 || message.event.event_type === 18) {
         console.log('transferred', message)
+        const channelId = message.event.paticipant_info?.channel_id;
+        if (channelId && engagementData.channelPaths.has(channelId)) {
+          const { rawPath, wavPath } = engagementData.channelPaths.get(channelId);
+          try {
+            await closeRawStream(rawPath);
+            await convertRawToWav(rawPath, wavPath);
+            console.log(`🔄 Transfer: finalized channel ${channelId} → ${wavPath}`);
+          } catch (err) {
+            console.error(`🔄 Transfer: failed to finalize channel ${channelId}:`, err.message);
+          }
+          engagementData.channelPaths.delete(channelId);
+          console.log(`🔄 Transfer: removed channel ${channelId} (channels remaining: ${engagementData.channelPaths.size})`);
+        }
       }
 
     } else if (message.msg_type === 12) {
@@ -174,7 +197,8 @@ function connectToMediaWebSocket(mediaUrl, engagementId, rtmsStreamId, signaling
         console.log(`🎵 Audio chunks: ${engagementData.audioChunkCount} (channels: ${engagementData.channelPaths.size})`);
       }
     } else if(message.msg_type === 17){
-        console.log("transcript", message.content.data)
+        console.log("transcript", message.content.data);
+        saveTranscript(message.content.data);
       }
   });
 
