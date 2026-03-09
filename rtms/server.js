@@ -80,6 +80,10 @@ function connectToSignalingWebSocket(engagementId, rtmsStreamId, serverUrl, enga
     } else if (message.msg_type === 6) {
       // Event subscription response
       console.log(message);
+      //logic to handle channel drop for either warm or direct transfer as to not drop channel if transfer not successful 
+      // if (message.event.paticipant_info.transfer_mode === "warm") {
+      //   if (message)
+      // }
       if (message.event.event_type === 21 || message.event.event_type === 18) {
         console.log('transferred', message)
         const channelId = message.event.paticipant_info?.channel_id;
