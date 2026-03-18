@@ -32,11 +32,9 @@ const transcriptsDir = join(dataDir, 'transcripts');
 // Store active engagements
 const activeEngagements = new Map();
 
-function saveTranscript(data) {
-  const now = new Date();
-  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  const timestamp = now.toISOString();
-  const filePath = join(transcriptsDir, `${date}.txt`);
+function saveTranscript(engagementId, data) {
+  const timestamp = new Date().toISOString();
+  const filePath = join(transcriptsDir, `${engagementId}.txt`);
   appendFileSync(filePath, `[${timestamp}] ${JSON.stringify(data)}\n`);
 }
 
@@ -78,14 +76,8 @@ function connectToSignalingWebSocket(engagementId, rtmsStreamId, serverUrl, enga
         }
       }
     } else if (message.msg_type === 6) {
-      // Event subscription response
-      console.log(message);
-      //logic to handle channel drop for either warm or direct transfer as to not drop channel if transfer not successful 
-      // if (message.event.paticipant_info.transfer_mode === "warm") {
-      //   if (message)
-      // }
       if (message.event.event_type === 21 || message.event.event_type === 18) {
-        console.log('transferred', message)
+        console.log(`[${engagementId}] Transfer event (type ${message.event.event_type})`);
         const channelId = message.event.paticipant_info?.channel_id;
         if (channelId && engagementData.channelPaths.has(channelId)) {
           const { rawPath, wavPath } = engagementData.channelPaths.get(channelId);
@@ -169,13 +161,6 @@ function connectToMediaWebSocket(mediaUrl, engagementId, rtmsStreamId, signaling
           msg_type: 7,
           rtms_stream_id: rtmsStreamId
         }));
-
-        // Subscribe to RTMS events
-        signalingWs.send(JSON.stringify({
-          msg_type: 5,
-          rtms_stream_id: rtmsStreamId,
-          events: [1, 2, 3, 4]
-        }));
       }
     } else if (message.msg_type === 12) {
       // Keep-alive request
@@ -202,7 +187,7 @@ function connectToMediaWebSocket(mediaUrl, engagementId, rtmsStreamId, signaling
       }
     } else if(message.msg_type === 17){
         console.log("transcript", message.content.data);
-        saveTranscript(message.content.data);
+        saveTranscript(engagementId, message.content.data);
       }
   });
 

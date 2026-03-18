@@ -22,7 +22,7 @@
     "logs:rtms": "docker-compose logs -f rtms",
     "rebuild": "docker-compose down -v && docker-compose build && docker-compose up",
     "clean": "docker-compose down -v && docker system prune -f",
-    "clean:data": "rm -rf rtms/data/audio/*",
+    "clean:data": "rm -rf rtms/data/audio/* && rm -rf rtms/data/transcripts/*",
     "health": "curl http://localhost:3001/health",
     "ngrok": "ngrok http 3001",
     "test": "cd frontend && npm test"
