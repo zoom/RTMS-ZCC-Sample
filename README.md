@@ -14,7 +14,7 @@ This application uses Zoom RTMS captures live audio from Zoom Contact Center voi
 - Real-time WebSocket connection to Zoom media servers
 - WAV file output for each stream (16kHz, 16-bit) + interleaved capability for muxing streams
 - Real-time transcript capture saved to daily log files
-- Call transfer detection with automatic reconnection
+- Call transfer detection with per-channel audio finalization (a new RTMS session is required to resume after transfer; automatic WebSocket reconnection is not implemented)
 - OAuth 2.0 authentication with Zoom
 - Webhook signature verification for security
 - Docker containerization for easy deployment
@@ -173,6 +173,16 @@ Once your app is installed for use, you can configure it with your Contact Cente
 | `NODE_ENV` | Environment mode | `development` |
 | `SESSION_SECRET` | Express session secret | Generate random string |
 
+
+## Zoom for Government
+
+If your organization uses **Zoom for Government** (ZoomGov), set the `ZOOM_HOST` environment variable to your GovCloud base URL:
+
+```bash
+ZOOM_HOST=https://us06web.zoom.us
+```
+
+This variable is used for all OAuth token exchange requests. All other configuration (webhook URLs, ngrok setup) remains the same. If `ZOOM_HOST` is not set, the app defaults to `https://zoom.us`.
 
 ## Application Flow
 
@@ -352,4 +362,30 @@ npm stop
 |----------|--------|-------------|
 | `/` | POST | RTMS webhook handler |
 | `/health` | GET | Health check with active engagements |
+
+## Known Limitations & Production Considerations
+
+This is a sample application intended for development and demonstration purposes. The following patterns are intentional simplifications that **must be addressed before deploying to production**:
+
+### Credential Storage
+- **`.env` files are not production-ready.** Use a secrets manager such as [AWS Secrets Manager](https://aws.amazon.com/secrets-manager/), [HashiCorp Vault](https://www.vaultproject.io/), or [GCP Secret Manager](https://cloud.google.com/secret-manager) to store `ZOOM_APP_CLIENT_ID`, `ZOOM_APP_CLIENT_SECRET`, `ZOOM_SECRET_TOKEN`, and `SESSION_SECRET` in production.
+
+### Session Storage
+- **In-memory session store (`MemoryStore`) is used.** The `express-session` default store is explicitly [not designed for production](https://www.npmjs.com/package/express-session#compatible-session-stores) — it leaks memory and does not persist across restarts. Replace with a persistent store such as `connect-redis` or `connect-pg-simple`.
+
+### State Management
+- **Engagement state and webhook dedup tracking are held in process memory.** Active engagements (`activeEngagements`) and recent webhook signatures (`recentWebhooks`) are plain `Map` objects. All state is lost if the process restarts mid-call, and this approach does not support horizontal scaling. Use a shared store (Redis, a database) in production.
+
+### Reliability
+- **No retry or backoff logic.** If the RTMS server is temporarily unavailable when a webhook arrives, the event is silently dropped. Add a retry queue (e.g., Bull, BullMQ) for reliable delivery in production.
+- **No WebSocket reconnection.** If the signaling or media WebSocket drops mid-call, the connection is not re-established. Implement reconnection logic with exponential backoff for production use.
+
+### Rate Limiting
+- **No rate limiting is applied to any endpoint.** Add rate limiting middleware (e.g., `express-rate-limit`) to the webhook and API endpoints before exposing them publicly.
+
+### Transport Security
+- **The server runs HTTP only.** TLS termination is handled externally (ngrok in development). In production, place the backend behind a TLS-terminating reverse proxy (nginx, AWS ALB, etc.) and enforce HTTPS.
+
+### Error Handling
+- **Some error responses include internal details** (Zoom API error bodies, internal error messages). Sanitize error responses in production to avoid leaking implementation details to clients.
 

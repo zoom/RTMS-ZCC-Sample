@@ -286,7 +286,7 @@ async function cleanupEngagement(engagementId) {
     console.log(`Total chunks: ${data.audioChunkCount}`);
     console.log('='.repeat(60));
   } catch (error) {
-    console.error(`Cleanup error:`);
+    console.error(`Cleanup error for engagement ${engagementId}:`, error.message);
   } finally {
     activeEngagements.delete(engagementId);
   }

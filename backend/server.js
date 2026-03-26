@@ -26,14 +26,21 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// 2. Body parsers
-app.use(express.json());
+// 2. Body parsers — capture raw body for webhook signature verification
+app.use(express.json({
+  verify: (req, _res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // 3. Security headers AFTER CORS
 app.use(securityHeaders);
 
 // Session configuration
+if (!process.env.SESSION_SECRET) {
+  console.warn('[WARN] SESSION_SECRET is not set. Using an insecure fallback. Set SESSION_SECRET in your .env file before deploying.');
+}
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key-change-in-production',
   resave: false,
@@ -158,12 +165,37 @@ app.get('/api/auth/callback', async (req, res) => {
   }
 });
 
+// Verify x-zm-signature header on incoming Zoom webhooks
+function verifyZoomWebhook(req) {
+  const timestamp = req.headers['x-zm-request-timestamp'];
+  const signature = req.headers['x-zm-signature'];
+
+  if (!timestamp || !signature) return false;
+
+  // Reject requests older than 5 minutes to prevent replay attacks
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
+
+  const message = `v0:${timestamp}:${req.rawBody || ''}`;
+  const hash = crypto
+    .createHmac('sha256', process.env.ZOOM_SECRET_TOKEN || 'your-secret-token')
+    .update(message)
+    .digest('hex');
+  const expected = `v0=${hash}`;
+
+  if (signature.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
+
 // Store recent webhook event signatures to prevent duplicates
 const recentWebhooks = new Map();
 const WEBHOOK_DEDUP_WINDOW_MS = 5000; // 5 seconds
 
 // Webhook endpoint for Zoom events
 app.post('/api/webhooks/zoom', async (req, res) => {
+  if (!verifyZoomWebhook(req)) {
+    return res.status(401).json({ error: 'Invalid webhook signature' });
+  }
+
   const { event, payload } = req.body;
 
   console.log('Webhook received:', event);
@@ -214,16 +246,15 @@ app.post('/api/webhooks/zoom', async (req, res) => {
       recentWebhooks.delete(webhookSignature);
     }, WEBHOOK_DEDUP_WINDOW_MS);
 
-    try {
-      const rtmsServerUrl = process.env.RTMS_SERVER_URL || 'http://localhost:8080';
-      console.log(`Forwarding ${event} to RTMS server at ${rtmsServerUrl}`);
-      await axios.post(rtmsServerUrl, req.body, {
-        headers: { 'Content-Type': 'application/json' }
-      });
+    const rtmsServerUrl = process.env.RTMS_SERVER_URL || 'http://localhost:8080';
+    console.log(`Forwarding ${event} to RTMS server at ${rtmsServerUrl}`);
+    axios.post(rtmsServerUrl, req.body, {
+      headers: { 'Content-Type': 'application/json' }
+    }).then(() => {
       console.log(`Successfully forwarded ${event} to RTMS server`);
-    } catch (error) {
+    }).catch((error) => {
       console.error(`Failed to forward ${event} to RTMS server:`, error.message);
-    }
+    });
   }
 
   res.status(200).json({ received: true });
