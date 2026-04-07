@@ -82,6 +82,7 @@ Fill in your Zoom credentials, then set `FRONTEND_INTERNAL_URL` to `http://local
 ```bash
 npm run dev:local
 ```
+**note: to use the above command, npm package (concurrently)[https://www.npmjs.com/package/concurrently] will need to be installed on local machine. 
 
 ### 4. Setup ngrok
 
